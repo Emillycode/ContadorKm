@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">KmContador</string>
+
+    <string name="titulo_principal">Contador de KM</string>
+    <string name="km_sessao_atual">Sessão atual</string>
+    <string name="unidade_km">km</string>
+
+    <string name="botao_start">INICIAR</string>
+    <string name="botao_stop">PARAR</string>
+
+    <string name="resumo_hoje">Hoje</string>
+    <string name="resumo_semana">Semana</string>
+    <string name="resumo_mes">Mês</string>
+
+    <string name="meus_veiculos">Meus veículos</string>
+    <string name="veiculo_placeholder">Nenhum veículo cadastrado ainda</string>
+
+    <string name="notificacao_ainda_contando_titulo">Você está contando os km ainda?</string>
+    <string name="notificacao_ainda_contando_texto">A contagem está ativa há um tempo sem movimento. Toque para continuar ou parar.</string>
+
+    <string name="notificacao_troca_oleo_titulo">Hora de trocar o óleo!</string>
+    <string name="notificacao_troca_oleo_texto">Seu veículo atingiu o km recomendado para troca de óleo.</string>
+</resources>
