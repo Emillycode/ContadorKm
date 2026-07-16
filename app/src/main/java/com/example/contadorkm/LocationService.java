@@ -165,7 +165,7 @@ public class LocationService extends Service {
     }
 
     private Notification criarNotificacaoRastreio() {
-        Intent intentAbrirApp = new Intent(this, MainActivity.class);
+        Intent intentAbrirApp = new Intent(this, com.example.contadorkm.MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(
                 this, 0, intentAbrirApp, PendingIntent.FLAG_IMMUTABLE);
 

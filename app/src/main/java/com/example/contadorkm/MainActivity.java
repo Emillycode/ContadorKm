@@ -1,5 +1,7 @@
 package com.example.contadorkm;
 
+
+
 import android.Manifest;
 import android.content.ComponentName;
 import android.content.Context;
@@ -18,26 +20,29 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
+import com.example.contadorkm.R;
+
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Tela principal do KmContador.
  *
  * NESTA ETAPA:
- * - O botão Iniciar/Parar já liga/desliga o rastreamento REAL via GPS,
- *   feito pelo LocationService (Foreground Service).
- * - Antes de iniciar, pedimos a permissão de localização (e, no Android 13+,
- *   a permissão de notificação, exigida para o Foreground Service mostrar
- *   sua notificação contínua).
+ * - Ao clicar em "Parar", a sessão (início, fim, km percorridos) é salva
+ *   no banco local (Room).
+ * - Os cartões Hoje / Semana / Mês agora mostram a SOMA REAL das sessões
+ *   salvas, buscada no banco toda vez que a tela abre e toda vez que uma
+ *   sessão nova é salva.
  *
  * PRÓXIMAS ETAPAS (ainda não implementadas aqui, de propósito):
- * 1. Banco local (Room) — salvar cada sessão finalizada e somar por
- *    dia/semana/mês para preencher tvKmHoje, tvKmSemana e tvKmMes.
- * 2. Timer de 40 min de inatividade com a contagem ativa — parar sozinho e
+ * 1. Timer de 40 min de inatividade com a contagem ativa — parar sozinho e
  *    notificar "Você está contando os km ainda?".
- * 3. Cadastro de veículos (carro/moto + tipo de óleo) e verificação do km
+ * 2. Cadastro de veículos (carro/moto + tipo de óleo) e verificação do km
  *    acumulado contra os limites de troca de óleo.
  */
 public class MainActivity extends AppCompatActivity implements LocationService.KmUpdateListener {
@@ -49,9 +54,13 @@ public class MainActivity extends AppCompatActivity implements LocationService.K
     private Button btnStartStop;
 
     private boolean estaContando = false;
+    private long inicioSessaoMillis = 0L;
 
     private LocationService locationService;
     private boolean servicoConectado = false;
+
+    // Toda operação no banco (Room) roda fora da thread principal.
+    private final ExecutorService executorBanco = Executors.newSingleThreadExecutor();
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -93,10 +102,7 @@ public class MainActivity extends AppCompatActivity implements LocationService.K
         tvKmMes = findViewById(R.id.tvKmMes);
         btnStartStop = findViewById(R.id.btnStartStop);
 
-        // TODO: carregar valores reais de hoje/semana/mês do banco local (Room)
-        tvKmHoje.setText("0");
-        tvKmSemana.setText("0");
-        tvKmMes.setText("0");
+        carregarResumos();
 
         Intent intentServico = new Intent(this, LocationService.class);
         bindService(intentServico, serviceConnection, Context.BIND_AUTO_CREATE);
@@ -142,6 +148,7 @@ public class MainActivity extends AppCompatActivity implements LocationService.K
         }
 
         estaContando = true;
+        inicioSessaoMillis = System.currentTimeMillis();
         locationService.resetarSessao();
         locationService.iniciarRastreamento();
 
@@ -155,15 +162,79 @@ public class MainActivity extends AppCompatActivity implements LocationService.K
         estaContando = false;
 
         if (locationService != null) {
+            double kmDaSessao = locationService.getKmSessaoAtual();
+            long fimSessaoMillis = System.currentTimeMillis();
             locationService.pararRastreamento();
 
-            // TODO: salvar locationService.getKmSessaoAtual() no banco (Room),
-            // associado ao veículo selecionado, e então atualizar
-            // tvKmHoje / tvKmSemana / tvKmMes com os novos totais.
+            if (kmDaSessao > 0) {
+                salvarSessaoNoBanco(inicioSessaoMillis, fimSessaoMillis, kmDaSessao);
+            }
+
+            // TODO: quando os veículos existirem, verificar aqui se o km
+            // acumulado do veículo selecionado atingiu o limite de troca de óleo.
         }
 
         btnStartStop.setText(R.string.botao_start);
         btnStartStop.setBackgroundTintList(getColorStateList(R.color.accent));
+    }
+
+    private void salvarSessaoNoBanco(long inicioMillis, long fimMillis, double km) {
+        executorBanco.execute(() -> {
+            SessaoKm sessao = new SessaoKm(inicioMillis, fimMillis, km);
+            AppDatabase.getInstancia(getApplicationContext()).sessaoKmDao().inserir(sessao);
+            carregarResumos(); // já roda em background e volta pra UI thread sozinho
+        });
+    }
+
+    /** Busca no banco a soma de km de hoje, da semana e do mês, e atualiza a tela. */
+    private void carregarResumos() {
+        executorBanco.execute(() -> {
+            SessaoKmDao dao = AppDatabase.getInstancia(getApplicationContext()).sessaoKmDao();
+
+            double kmHoje = dao.somarKmDesde(obterInicioDoDia());
+            double kmSemana = dao.somarKmDesde(obterInicioDaSemana());
+            double kmMes = dao.somarKmDesde(obterInicioDoMes());
+
+            runOnUiThread(() -> {
+                tvKmHoje.setText(formatarKm(kmHoje));
+                tvKmSemana.setText(formatarKm(kmSemana));
+                tvKmMes.setText(formatarKm(kmMes));
+            });
+        });
+    }
+
+    private String formatarKm(double km) {
+        return String.format(Locale.getDefault(), "%.1f", km);
+    }
+
+    private long obterInicioDoDia() {
+        Calendar calendario = Calendar.getInstance();
+        calendario.set(Calendar.HOUR_OF_DAY, 0);
+        calendario.set(Calendar.MINUTE, 0);
+        calendario.set(Calendar.SECOND, 0);
+        calendario.set(Calendar.MILLISECOND, 0);
+        return calendario.getTimeInMillis();
+    }
+
+    private long obterInicioDaSemana() {
+        Calendar calendario = Calendar.getInstance();
+        calendario.setFirstDayOfWeek(Calendar.MONDAY);
+        calendario.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY);
+        calendario.set(Calendar.HOUR_OF_DAY, 0);
+        calendario.set(Calendar.MINUTE, 0);
+        calendario.set(Calendar.SECOND, 0);
+        calendario.set(Calendar.MILLISECOND, 0);
+        return calendario.getTimeInMillis();
+    }
+
+    private long obterInicioDoMes() {
+        Calendar calendario = Calendar.getInstance();
+        calendario.set(Calendar.DAY_OF_MONTH, 1);
+        calendario.set(Calendar.HOUR_OF_DAY, 0);
+        calendario.set(Calendar.MINUTE, 0);
+        calendario.set(Calendar.SECOND, 0);
+        calendario.set(Calendar.MILLISECOND, 0);
+        return calendario.getTimeInMillis();
     }
 
     @Override
