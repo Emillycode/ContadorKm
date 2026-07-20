@@ -1,19 +1,23 @@
 package com.example.contadorkm;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.location.Location;
 import android.os.Binder;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
@@ -23,8 +27,9 @@ import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.Priority;
 
 /**
- * Foreground Service responsável por rastrear a localização real do usuário
- * e calcular os km percorridos na sessão atual.
+ * Foreground Service responsável por rastrear a localização real do usuário,
+ * calcular os km percorridos na sessão atual e detectar inatividade
+ * prolongada (40 min sem deslocamento real) para parar sozinho.
  *
  * Por que Foreground Service? Porque o Android mata serviços comuns em
  * segundo plano rapidamente. Um Foreground Service precisa mostrar uma
@@ -34,7 +39,12 @@ import com.google.android.gms.location.Priority;
 public class LocationService extends Service {
 
     public static final String CHANNEL_ID_RASTREIO = "canal_rastreio_km";
+    public static final String CHANNEL_ID_ALERTA = "canal_alerta_inatividade";
     private static final int NOTIFICATION_ID_RASTREIO = 1001;
+    private static final int NOTIFICATION_ID_ALERTA = 1002;
+
+    private static final long LIMITE_INATIVIDADE_MILLIS = 40 * 60 * 1000L; // 40 minutos
+    private static final long INTERVALO_VERIFICACAO_MILLIS = 60 * 1000L;   // checa a cada 1 min
 
     private final IBinder binder = new LocalBinder();
 
@@ -43,12 +53,28 @@ public class LocationService extends Service {
 
     private Location ultimaLocalizacao = null;
     private double kmSessaoAtualMetros = 0.0;
+    private long tempoUltimoMovimentoMillis = 0L;
 
     private KmUpdateListener listener;
 
-    /** A Activity implementa isso para receber os km atualizados em tempo real. */
+    private final Handler handlerInatividade = new Handler(Looper.getMainLooper());
+    private final Runnable verificadorDeInatividade = new Runnable() {
+        @Override
+        public void run() {
+            long tempoParadoMillis = System.currentTimeMillis() - tempoUltimoMovimentoMillis;
+            if (tempoParadoMillis >= LIMITE_INATIVIDADE_MILLIS) {
+                dispararAutoStopPorInatividade();
+            } else {
+                handlerInatividade.postDelayed(this, INTERVALO_VERIFICACAO_MILLIS);
+            }
+        }
+    };
+
+    /** A Activity implementa isso para receber os km atualizados em tempo real
+     *  e para ser avisada quando o serviço parar sozinho por inatividade. */
     public interface KmUpdateListener {
         void onKmAtualizado(double kmTotalSessao);
+        void onParadaAutomaticaPorInatividade(double kmTotalSessao);
     }
 
     public class LocalBinder extends Binder {
@@ -61,7 +87,7 @@ public class LocationService extends Service {
     public void onCreate() {
         super.onCreate();
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
-        criarCanalNotificacao();
+        criarCanaisDeNotificacao();
 
         locationCallback = new LocationCallback() {
             @Override
@@ -88,6 +114,10 @@ public class LocationService extends Service {
     public void iniciarRastreamento() {
         startForeground(NOTIFICATION_ID_RASTREIO, criarNotificacaoRastreio());
 
+        tempoUltimoMovimentoMillis = System.currentTimeMillis();
+        handlerInatividade.removeCallbacks(verificadorDeInatividade);
+        handlerInatividade.postDelayed(verificadorDeInatividade, INTERVALO_VERIFICACAO_MILLIS);
+
         LocationRequest locationRequest = new LocationRequest.Builder(
                 Priority.PRIORITY_HIGH_ACCURACY, 5000) // pede atualização a cada 5s
                 .setMinUpdateDistanceMeters(5f) // ignora "tremidas" de GPS menores que 5m
@@ -100,11 +130,11 @@ public class LocationService extends Service {
         }
     }
 
-    /** Para o rastreamento e encerra o foreground service. */
+    /** Para o rastreamento por ação do usuário (botão "Parar"). */
     public void pararRastreamento() {
         fusedLocationClient.removeLocationUpdates(locationCallback);
+        handlerInatividade.removeCallbacks(verificadorDeInatividade);
         stopForeground(true);
-        stopSelf();
     }
 
     /** Zera a distância acumulada (chamado ao iniciar uma nova sessão). */
@@ -125,6 +155,8 @@ public class LocationService extends Service {
             return;
         }
 
+        boolean houveMovimentoReal = false;
+
         if (ultimaLocalizacao != null) {
             float distanciaMetros = ultimaLocalizacao.distanceTo(novaLocalizacao);
 
@@ -137,35 +169,62 @@ public class LocationService extends Service {
 
             if (distanciaMetros > acuraciaCombinada && distanciaMetros < 200f) {
                 kmSessaoAtualMetros += distanciaMetros;
+                houveMovimentoReal = true;
             }
         }
         ultimaLocalizacao = novaLocalizacao;
 
+        // O timer de inatividade só é resetado quando há movimento REAL — ou
+        // seja, se o usuário ficar parado (mesmo recebendo leituras de GPS
+        // que não geram km), o relógio da inatividade continua contando.
+        if (houveMovimentoReal) {
+            tempoUltimoMovimentoMillis = System.currentTimeMillis();
+        }
+
         if (listener != null) {
             listener.onKmAtualizado(getKmSessaoAtual());
         }
-
-        // TODO: registrar o timestamp desta atualização — a próxima etapa
-        // (timer de 40 min de inatividade) vai comparar "agora" com o
-        // horário da última localização válida para decidir se para sozinho.
     }
 
-    private void criarCanalNotificacao() {
+    /** Chamado pelo verificadorDeInatividade quando 40 min se passam sem movimento real. */
+    private void dispararAutoStopPorInatividade() {
+        double kmFinal = getKmSessaoAtual();
+
+        fusedLocationClient.removeLocationUpdates(locationCallback);
+        stopForeground(true);
+        dispararNotificacaoInatividade();
+
+        if (listener != null) {
+            listener.onParadaAutomaticaPorInatividade(kmFinal);
+        }
+        // Não chamamos stopSelf() aqui: o serviço continua vivo (bound) para
+        // que a Activity consiga chamar iniciarRastreamento() novamente numa
+        // próxima sessão sem precisar recriar a conexão.
+    }
+
+    private void criarCanaisDeNotificacao() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel canal = new NotificationChannel(
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager == null) return;
+
+            NotificationChannel canalRastreio = new NotificationChannel(
                     CHANNEL_ID_RASTREIO,
                     "Rastreamento de km",
                     NotificationManager.IMPORTANCE_LOW);
-            canal.setDescription("Notificação contínua enquanto o KmContador está rastreando sua viagem.");
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) {
-                manager.createNotificationChannel(canal);
-            }
+            canalRastreio.setDescription("Notificação contínua enquanto o KmContador está rastreando sua viagem.");
+            manager.createNotificationChannel(canalRastreio);
+
+            NotificationChannel canalAlerta = new NotificationChannel(
+                    CHANNEL_ID_ALERTA,
+                    "Alerta de inatividade",
+                    NotificationManager.IMPORTANCE_HIGH);
+            canalAlerta.setDescription("Avisa quando a contagem de km é parada automaticamente por inatividade.");
+            manager.createNotificationChannel(canalAlerta);
         }
     }
 
     private Notification criarNotificacaoRastreio() {
-        Intent intentAbrirApp = new Intent(this, com.example.contadorkm.MainActivity.class);
+        Intent intentAbrirApp = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(
                 this, 0, intentAbrirApp, PendingIntent.FLAG_IMMUTABLE);
 
@@ -178,9 +237,38 @@ public class LocationService extends Service {
                 .build();
     }
 
+    private void dispararNotificacaoInatividade() {
+        // Em Android 13+ a notificação exige permissão POST_NOTIFICATIONS,
+        // já solicitada pela MainActivity antes de iniciar a contagem.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+        Intent intentAbrirApp = new Intent(this, MainActivity.class);
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+                this, 0, intentAbrirApp, PendingIntent.FLAG_IMMUTABLE);
+
+        Notification notificacao = new NotificationCompat.Builder(this, CHANNEL_ID_ALERTA)
+                .setContentTitle(getString(R.string.notificacao_ainda_contando_titulo))
+                .setContentText(getString(R.string.notificacao_ainda_contando_texto))
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .build();
+
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.notify(NOTIFICATION_ID_ALERTA, notificacao);
+        }
+    }
+
     @Override
     public void onDestroy() {
         super.onDestroy();
         fusedLocationClient.removeLocationUpdates(locationCallback);
+        handlerInatividade.removeCallbacks(verificadorDeInatividade);
     }
 }

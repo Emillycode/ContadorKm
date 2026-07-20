@@ -1,7 +1,5 @@
 package com.example.contadorkm;
 
-
-
 import android.Manifest;
 import android.content.ComponentName;
 import android.content.Context;
@@ -20,8 +18,6 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
-import com.example.contadorkm.R;
-
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
@@ -35,14 +31,14 @@ import java.util.concurrent.Executors;
  * NESTA ETAPA:
  * - Ao clicar em "Parar", a sessão (início, fim, km percorridos) é salva
  *   no banco local (Room).
- * - Os cartões Hoje / Semana / Mês agora mostram a SOMA REAL das sessões
- *   salvas, buscada no banco toda vez que a tela abre e toda vez que uma
- *   sessão nova é salva.
+ * - Os cartões Hoje / Semana / Mês mostram a SOMA REAL das sessões salvas.
+ * - Se a contagem ficar ativa por 40 minutos SEM deslocamento real, o
+ *   LocationService para sozinho e dispara uma notificação de sistema;
+ *   a Activity recebe esse aviso via onParadaAutomaticaPorInatividade,
+ *   salva a sessão normalmente e volta o botão para "Iniciar".
  *
  * PRÓXIMAS ETAPAS (ainda não implementadas aqui, de propósito):
- * 1. Timer de 40 min de inatividade com a contagem ativa — parar sozinho e
- *    notificar "Você está contando os km ainda?".
- * 2. Cadastro de veículos (carro/moto + tipo de óleo) e verificação do km
+ * 1. Cadastro de veículos (carro/moto + tipo de óleo) e verificação do km
  *    acumulado contra os limites de troca de óleo.
  */
 public class MainActivity extends AppCompatActivity implements LocationService.KmUpdateListener {
@@ -154,26 +150,44 @@ public class MainActivity extends AppCompatActivity implements LocationService.K
 
         btnStartStop.setText(R.string.botao_stop);
         btnStartStop.setBackgroundTintList(getColorStateList(R.color.danger));
-
-        // TODO: agendar aqui o timer de 40 min de inatividade da próxima etapa
     }
 
     private void pararContagem() {
-        estaContando = false;
-
         if (locationService != null) {
             double kmDaSessao = locationService.getKmSessaoAtual();
-            long fimSessaoMillis = System.currentTimeMillis();
             locationService.pararRastreamento();
+            finalizarSessaoLocalmente(kmDaSessao);
+        }
+        atualizarBotaoParaEstadoParado();
+    }
 
-            if (kmDaSessao > 0) {
-                salvarSessaoNoBanco(inicioSessaoMillis, fimSessaoMillis, kmDaSessao);
-            }
+    /** Chamado pelo LocationService quando o timer de 40 min de inatividade dispara. */
+    @Override
+    public void onParadaAutomaticaPorInatividade(double kmTotalSessao) {
+        runOnUiThread(() -> {
+            finalizarSessaoLocalmente(kmTotalSessao);
+            atualizarBotaoParaEstadoParado();
+            Toast.makeText(this,
+                    getString(R.string.notificacao_ainda_contando_titulo),
+                    Toast.LENGTH_LONG).show();
+        });
+    }
 
-            // TODO: quando os veículos existirem, verificar aqui se o km
-            // acumulado do veículo selecionado atingiu o limite de troca de óleo.
+    /** Salva a sessão (se houver km) e atualiza a flag de estado — usado tanto pelo
+     *  botão "Parar" quanto pelo auto-stop por inatividade. */
+    private void finalizarSessaoLocalmente(double kmDaSessao) {
+        estaContando = false;
+        long fimSessaoMillis = System.currentTimeMillis();
+
+        if (kmDaSessao > 0) {
+            salvarSessaoNoBanco(inicioSessaoMillis, fimSessaoMillis, kmDaSessao);
         }
 
+        // TODO: quando os veículos existirem, verificar aqui se o km
+        // acumulado do veículo selecionado atingiu o limite de troca de óleo.
+    }
+
+    private void atualizarBotaoParaEstadoParado() {
         btnStartStop.setText(R.string.botao_start);
         btnStartStop.setBackgroundTintList(getColorStateList(R.color.accent));
     }
