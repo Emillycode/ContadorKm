@@ -1,6 +1,109 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
-             android:layout_width="match_parent"
-             android:layout_height="match_parent">
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    android:fillViewport="true">
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Cadastro de veículo"
+            android:textColor="@color/text_primary"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="24dp"/>
+
+        <EditText
+            android:id="@+id/etNomeVeiculo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Nome do veículo"
+            android:inputType="textCapSentences"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="24dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Tipo de veículo"
+            android:textColor="@color/text_primary"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
+
+        <RadioGroup
+            android:id="@+id/rgTipoVeiculo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="24dp">
+
+            <RadioButton
+                android:id="@+id/rbCarro"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Carro"
+                android:checked="true"/>
+
+            <RadioButton
+                android:id="@+id/rbMoto"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Moto"/>
+        </RadioGroup>
+
+        <TextView
+            android:id="@+id/tvLabelTipoOleo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Tipo de óleo"
+            android:textColor="@color/text_primary"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
+
+        <RadioGroup
+            android:id="@+id/rgTipoOleo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="32dp">
+
+            <RadioButton
+                android:id="@+id/rbSintético"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Sintético"
+                android:checked="true"/>
+
+            <RadioButton
+                android:id="@+id/rbSemissintético"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Semissintético"/>
+
+            <RadioButton
+                android:id="@+id/rbMineral"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Mineral"/>
+        </RadioGroup>
+
+        <Button
+            android:id="@+id/btnSalvarVeículo"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Salvar veículo"
+            android:textColor="@color/white"
+            android:textStyle="bold"
+            android:backgroundTint="@color/primary"/>
+
+    </LinearLayout>
+</ScrollView>
