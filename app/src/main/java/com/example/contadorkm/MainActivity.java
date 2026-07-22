@@ -236,8 +236,18 @@ public class MainActivity extends AppCompatActivity implements LocationService.K
                 ? R.color.danger : R.color.text_secondary));
         tvStatusOleo.setTextSize(13f);
 
+        TextView tvEditar = new TextView(this);
+        tvEditar.setText(R.string.texto_editar_veiculo);
+        tvEditar.setTextColor(getColor(R.color.primary));
+        tvEditar.setTextSize(13f);
+        tvEditar.setTypeface(null, android.graphics.Typeface.BOLD);
+        int paddingEditar = dpParaPx(8);
+        tvEditar.setPadding(paddingEditar, 0, 0, 0);
+        tvEditar.setOnClickListener(v -> abrirEdicaoDeVeiculo(veiculo));
+
         linha.addView(tvNomeTipo);
         linha.addView(tvStatusOleo);
+        linha.addView(tvEditar);
 
         linha.setOnClickListener(v -> {
             veiculoSelecionadoId = veiculo.id;
@@ -246,6 +256,12 @@ public class MainActivity extends AppCompatActivity implements LocationService.K
         });
 
         return linha;
+    }
+
+    private void abrirEdicaoDeVeiculo(Veiculo veiculo) {
+        Intent intent = new Intent(this, CadastroVeiculoActivity.class);
+        intent.putExtra(CadastroVeiculoActivity.EXTRA_VEICULO_ID, veiculo.id);
+        cadastroVeiculoLauncher.launch(intent);
     }
 
     private void salvarVeiculoSelecionadoNasPrefs() {

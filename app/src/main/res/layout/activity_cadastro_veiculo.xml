@@ -12,9 +12,10 @@
         android:padding="24dp">
 
         <TextView
+            android:id="@+id/tvTituloCadastro"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Cadastro de veículo"
+            android:text="@string/titulo_cadastro_veiculo"
             android:textColor="@color/text_primary"
             android:textSize="22sp"
             android:textStyle="bold"
@@ -24,7 +25,7 @@
             android:id="@+id/etNomeVeiculo"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Nome do veículo"
+            android:hint="@string/hint_nome_veiculo"
             android:inputType="textCapSentences"
             android:textColor="@color/text_primary"
             android:layout_marginBottom="24dp"/>
@@ -32,7 +33,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Tipo de veículo"
+            android:text="@string/label_tipo_veiculo"
             android:textColor="@color/text_primary"
             android:textStyle="bold"
             android:layout_marginBottom="8dp"/>
@@ -49,7 +50,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Carro"
+                android:text="@string/opcao_carro"
                 android:checked="true"/>
 
             <RadioButton
@@ -57,14 +58,14 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Moto"/>
+                android:text="@string/opcao_moto"/>
         </RadioGroup>
 
         <TextView
             android:id="@+id/tvLabelTipoOleo"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Tipo de óleo"
+            android:text="@string/label_tipo_oleo"
             android:textColor="@color/text_primary"
             android:textStyle="bold"
             android:layout_marginBottom="8dp"/>
@@ -77,33 +78,44 @@
             android:layout_marginBottom="32dp">
 
             <RadioButton
-                android:id="@+id/rbSintético"
+                android:id="@+id/rbSintetico"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Sintético"
+                android:text="@string/opcao_sintetico"
                 android:checked="true"/>
 
             <RadioButton
-                android:id="@+id/rbSemissintético"
+                android:id="@+id/rbSemissintetico"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Semissintético"/>
+                android:text="@string/opcao_semissintetico"/>
 
             <RadioButton
                 android:id="@+id/rbMineral"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Mineral"/>
+                android:text="@string/opcao_mineral"/>
         </RadioGroup>
 
         <Button
-            android:id="@+id/btnSalvarVeículo"
+            android:id="@+id/btnSalvarVeiculo"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:text="Salvar veículo"
+            android:text="@string/botao_salvar_veiculo"
             android:textColor="@color/white"
             android:textStyle="bold"
             android:backgroundTint="@color/primary"/>
+
+        <Button
+            android:id="@+id/btnExcluirVeiculo"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="12dp"
+            android:text="@string/botao_excluir_veiculo"
+            android:textColor="@color/danger"
+            android:textStyle="bold"
+            android:backgroundTint="@color/card_background"
+            android:visibility="gone"/>
 
     </LinearLayout>
 </ScrollView>
