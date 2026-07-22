@@ -5,11 +5,15 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -29,28 +33,34 @@ import java.util.concurrent.Executors;
  * Tela principal do KmContador.
  *
  * NESTA ETAPA:
- * - Ao clicar em "Parar", a sessão (início, fim, km percorridos) é salva
- *   no banco local (Room).
- * - Os cartões Hoje / Semana / Mês mostram a SOMA REAL das sessões salvas.
- * - Se a contagem ficar ativa por 40 minutos SEM deslocamento real, o
- *   LocationService para sozinho e dispara uma notificação de sistema;
- *   a Activity recebe esse aviso via onParadaAutomaticaPorInatividade,
- *   salva a sessão normalmente e volta o botão para "Iniciar".
- *
- * PRÓXIMAS ETAPAS (ainda não implementadas aqui, de propósito):
- * 1. Cadastro de veículos (carro/moto + tipo de óleo) e verificação do km
- *    acumulado contra os limites de troca de óleo.
+ * - Ao clicar em "Parar" (ou quando o auto-stop por inatividade dispara),
+ *   a sessão é salva no banco E o km é somado ao veículo selecionado no
+ *   momento; se esse total ultrapassar o limite de troca de óleo do
+ *   veículo, uma notificação de troca de óleo é disparada.
+ * - A lista "Meus veículos" é carregada do banco; tocar em um veículo o
+ *   torna o "veículo ativo" (destacado), usado para associar a próxima
+ *   sessão. Essa seleção é lembrada entre aberturas do app.
+ * - É preciso ter um veículo selecionado antes de iniciar a contagem.
  */
 public class MainActivity extends AppCompatActivity implements LocationService.KmUpdateListener {
+
+    private static final String PREFS_NOME = "kmcontador_prefs";
+    private static final String PREF_VEICULO_SELECIONADO_ID = "veiculo_selecionado_id";
 
     private TextView tvKmSessaoAtual;
     private TextView tvKmHoje;
     private TextView tvKmSemana;
     private TextView tvKmMes;
+    private TextView tvVeiculoDoResumo;
     private Button btnStartStop;
+    private LinearLayout containerVeiculos;
+    private TextView tvAdicionarVeiculo;
 
     private boolean estaContando = false;
     private long inicioSessaoMillis = 0L;
+
+    private List<Veiculo> veiculosCarregados = new ArrayList<>();
+    private long veiculoSelecionadoId = -1L;
 
     private LocationService locationService;
     private boolean servicoConectado = false;
@@ -87,6 +97,13 @@ public class MainActivity extends AppCompatActivity implements LocationService.K
                 }
             });
 
+    private final ActivityResultLauncher<Intent> cadastroVeiculoLauncher =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), resultado -> {
+                if (resultado.getResultCode() == RESULT_OK) {
+                    carregarVeiculos();
+                }
+            });
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -96,18 +113,160 @@ public class MainActivity extends AppCompatActivity implements LocationService.K
         tvKmHoje = findViewById(R.id.tvKmHoje);
         tvKmSemana = findViewById(R.id.tvKmSemana);
         tvKmMes = findViewById(R.id.tvKmMes);
+        tvVeiculoDoResumo = findViewById(R.id.tvVeiculoDoResumo);
         btnStartStop = findViewById(R.id.btnStartStop);
+        containerVeiculos = findViewById(R.id.containerVeiculos);
+        tvAdicionarVeiculo = findViewById(R.id.tvAdicionarVeiculo);
 
-        carregarResumos();
+        NotificationHelper.criarCanal(this);
+
+        SharedPreferences prefs = getPreferences();
+        veiculoSelecionadoId = prefs.getLong(PREF_VEICULO_SELECIONADO_ID, -1L);
+
+        carregarVeiculos();
 
         Intent intentServico = new Intent(this, LocationService.class);
         bindService(intentServico, serviceConnection, Context.BIND_AUTO_CREATE);
 
         btnStartStop.setOnClickListener(v -> alternarContagem());
+        tvAdicionarVeiculo.setOnClickListener(v ->
+                cadastroVeiculoLauncher.launch(new Intent(this, CadastroVeiculoActivity.class)));
     }
+
+    private SharedPreferences getPreferences() {
+        return getSharedPreferences(PREFS_NOME, MODE_PRIVATE);
+    }
+
+    // ---------------------------------------------------------------
+    // Veículos: carregar, exibir lista, selecionar veículo ativo
+    // ---------------------------------------------------------------
+
+    private void carregarVeiculos() {
+        executorBanco.execute(() -> {
+            List<Veiculo> veiculos = AppDatabase.getInstancia(getApplicationContext())
+                    .veiculoDao().listarTodos();
+            runOnUiThread(() -> exibirListaDeVeiculos(veiculos));
+        });
+    }
+
+    private void exibirListaDeVeiculos(List<Veiculo> veiculos) {
+        veiculosCarregados = veiculos;
+        containerVeiculos.removeAllViews();
+
+        if (veiculos.isEmpty()) {
+            TextView placeholder = new TextView(this);
+            placeholder.setText(R.string.veiculo_placeholder);
+            placeholder.setTextColor(getColor(R.color.text_secondary));
+            placeholder.setGravity(Gravity.CENTER);
+            int padding = dpParaPx(20);
+            placeholder.setPadding(padding, padding, padding, padding);
+            containerVeiculos.addView(placeholder);
+            veiculoSelecionadoId = -1L;
+            atualizarResumoParaVeiculoSelecionado();
+            return;
+        }
+
+        boolean idSelecionadoAindaExiste = false;
+        for (Veiculo veiculo : veiculos) {
+            if (veiculo.id == veiculoSelecionadoId) {
+                idSelecionadoAindaExiste = true;
+                break;
+            }
+        }
+        if (!idSelecionadoAindaExiste) {
+            // Se nada estava selecionado (ou o selecionado foi removido), assume o primeiro.
+            veiculoSelecionadoId = veiculos.get(0).id;
+            salvarVeiculoSelecionadoNasPrefs();
+        }
+
+        for (Veiculo veiculo : veiculos) {
+            containerVeiculos.addView(criarLinhaDeVeiculo(veiculo));
+        }
+
+        atualizarResumoParaVeiculoSelecionado();
+    }
+
+    /** Atualiza o texto "Km de: <veículo>" e recarrega Hoje/Semana/Mês filtrados por ele. */
+    private void atualizarResumoParaVeiculoSelecionado() {
+        if (veiculoSelecionadoId == -1L) {
+            tvVeiculoDoResumo.setText(R.string.resumo_sem_veiculo);
+            tvKmHoje.setText(formatarKm(0));
+            tvKmSemana.setText(formatarKm(0));
+            tvKmMes.setText(formatarKm(0));
+            return;
+        }
+
+        String nomeVeiculo = "";
+        for (Veiculo veiculo : veiculosCarregados) {
+            if (veiculo.id == veiculoSelecionadoId) {
+                nomeVeiculo = veiculo.nome;
+                break;
+            }
+        }
+        tvVeiculoDoResumo.setText(getString(R.string.resumo_km_do_veiculo, nomeVeiculo));
+        carregarResumos(veiculoSelecionadoId);
+    }
+
+    private View criarLinhaDeVeiculo(Veiculo veiculo) {
+        LinearLayout linha = new LinearLayout(this);
+        linha.setOrientation(LinearLayout.HORIZONTAL);
+        linha.setGravity(Gravity.CENTER_VERTICAL);
+        int paddingH = dpParaPx(16);
+        int paddingV = dpParaPx(14);
+        linha.setPadding(paddingH, paddingV, paddingH, paddingV);
+
+        boolean selecionado = veiculo.id == veiculoSelecionadoId;
+        linha.setBackgroundColor(getColor(selecionado ? R.color.background : R.color.card_background));
+
+        TextView tvNomeTipo = new TextView(this);
+        String tipoLegivel = Tipos.CARRO.equals(veiculo.tipoVeiculo)
+                ? getString(R.string.opcao_carro) : getString(R.string.opcao_moto);
+        tvNomeTipo.setText(String.format(Locale.getDefault(), "%s (%s)", veiculo.nome, tipoLegivel));
+        tvNomeTipo.setTextColor(getColor(R.color.text_primary));
+        tvNomeTipo.setTextSize(15f);
+        LinearLayout.LayoutParams paramsNome = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        tvNomeTipo.setLayoutParams(paramsNome);
+
+        TextView tvStatusOleo = new TextView(this);
+        double limite = veiculo.getLimiteTrocaOleoKm();
+        tvStatusOleo.setText(String.format(Locale.getDefault(), "%.0f / %.0f km",
+                veiculo.kmDesdeTrocaOleo, limite));
+        tvStatusOleo.setTextColor(getColor(veiculo.atingiuLimiteTrocaOleo()
+                ? R.color.danger : R.color.text_secondary));
+        tvStatusOleo.setTextSize(13f);
+
+        linha.addView(tvNomeTipo);
+        linha.addView(tvStatusOleo);
+
+        linha.setOnClickListener(v -> {
+            veiculoSelecionadoId = veiculo.id;
+            salvarVeiculoSelecionadoNasPrefs();
+            exibirListaDeVeiculos(veiculosCarregados); // redesenha para destacar a nova seleção
+        });
+
+        return linha;
+    }
+
+    private void salvarVeiculoSelecionadoNasPrefs() {
+        getPreferences().edit().putLong(PREF_VEICULO_SELECIONADO_ID, veiculoSelecionadoId).apply();
+    }
+
+    private int dpParaPx(int dp) {
+        float densidade = getResources().getDisplayMetrics().density;
+        return Math.round(dp * densidade);
+    }
+
+    // ---------------------------------------------------------------
+    // Início / fim da contagem
+    // ---------------------------------------------------------------
 
     private void alternarContagem() {
         if (!estaContando) {
+            if (veiculoSelecionadoId == -1L) {
+                Toast.makeText(this, R.string.selecione_um_veiculo_toast, Toast.LENGTH_LONG).show();
+                return;
+            }
             verificarPermissoesEIniciar();
         } else {
             pararContagem();
@@ -173,18 +332,16 @@ public class MainActivity extends AppCompatActivity implements LocationService.K
         });
     }
 
-    /** Salva a sessão (se houver km) e atualiza a flag de estado — usado tanto pelo
-     *  botão "Parar" quanto pelo auto-stop por inatividade. */
+    /** Salva a sessão, soma o km ao veículo selecionado e verifica a troca de óleo —
+     *  usado tanto pelo botão "Parar" quanto pelo auto-stop por inatividade. */
     private void finalizarSessaoLocalmente(double kmDaSessao) {
         estaContando = false;
         long fimSessaoMillis = System.currentTimeMillis();
+        long veiculoDaSessao = veiculoSelecionadoId;
 
         if (kmDaSessao > 0) {
-            salvarSessaoNoBanco(inicioSessaoMillis, fimSessaoMillis, kmDaSessao);
+            salvarSessaoNoBanco(inicioSessaoMillis, fimSessaoMillis, kmDaSessao, veiculoDaSessao);
         }
-
-        // TODO: quando os veículos existirem, verificar aqui se o km
-        // acumulado do veículo selecionado atingiu o limite de troca de óleo.
     }
 
     private void atualizarBotaoParaEstadoParado() {
@@ -192,22 +349,38 @@ public class MainActivity extends AppCompatActivity implements LocationService.K
         btnStartStop.setBackgroundTintList(getColorStateList(R.color.accent));
     }
 
-    private void salvarSessaoNoBanco(long inicioMillis, long fimMillis, double km) {
+    private void salvarSessaoNoBanco(long inicioMillis, long fimMillis, double km, long veiculoId) {
         executorBanco.execute(() -> {
-            SessaoKm sessao = new SessaoKm(inicioMillis, fimMillis, km);
-            AppDatabase.getInstancia(getApplicationContext()).sessaoKmDao().inserir(sessao);
-            carregarResumos(); // já roda em background e volta pra UI thread sozinho
+            AppDatabase db = AppDatabase.getInstancia(getApplicationContext());
+
+            SessaoKm sessao = new SessaoKm(inicioMillis, fimMillis, km, veiculoId);
+            db.sessaoKmDao().inserir(sessao);
+
+            if (veiculoId != -1L) {
+                Veiculo veiculo = db.veiculoDao().buscarPorId(veiculoId);
+                if (veiculo != null) {
+                    veiculo.kmDesdeTrocaOleo += km;
+                    db.veiculoDao().atualizar(veiculo);
+
+                    if (veiculo.atingiuLimiteTrocaOleo()) {
+                        NotificationHelper.notificarTrocaOleo(getApplicationContext(), veiculo);
+                    }
+                }
+            }
+
+            carregarVeiculos();
         });
     }
 
-    /** Busca no banco a soma de km de hoje, da semana e do mês, e atualiza a tela. */
-    private void carregarResumos() {
+    /** Busca no banco a soma de km de hoje, da semana e do mês PARA UM VEÍCULO
+     *  específico, e atualiza a tela. */
+    private void carregarResumos(long veiculoId) {
         executorBanco.execute(() -> {
             SessaoKmDao dao = AppDatabase.getInstancia(getApplicationContext()).sessaoKmDao();
 
-            double kmHoje = dao.somarKmDesde(obterInicioDoDia());
-            double kmSemana = dao.somarKmDesde(obterInicioDaSemana());
-            double kmMes = dao.somarKmDesde(obterInicioDoMes());
+            double kmHoje = dao.somarKmPorVeiculoDesde(veiculoId, obterInicioDoDia());
+            double kmSemana = dao.somarKmPorVeiculoDesde(veiculoId, obterInicioDaSemana());
+            double kmMes = dao.somarKmPorVeiculoDesde(veiculoId, obterInicioDoMes());
 
             runOnUiThread(() -> {
                 tvKmHoje.setText(formatarKm(kmHoje));
