@@ -24,8 +24,10 @@ import androidx.core.content.ContextCompat;
 
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.text.SimpleDateFormat;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -230,11 +232,18 @@ public class MainActivity extends AppCompatActivity implements LocationService.K
 
         TextView tvStatusOleo = new TextView(this);
         double limite = veiculo.getLimiteTrocaOleoKm();
-        tvStatusOleo.setText(String.format(Locale.getDefault(), "%.0f / %.0f km",
-                veiculo.kmDesdeTrocaOleo, limite));
+        String textoStatus = String.format(Locale.getDefault(), "%.0f / %.0f km",
+                veiculo.kmDesdeTrocaOleo, limite);
+        if (veiculo.ultimaTrocaOleoMillis > 0) {
+            SimpleDateFormat formatoData = new SimpleDateFormat("dd/MM/yyyy", Locale.getDefault());
+            String dataFormatada = formatoData.format(new Date(veiculo.ultimaTrocaOleoMillis));
+            textoStatus += "\n" + getString(R.string.texto_ultima_troca_oleo, dataFormatada);
+        }
+        tvStatusOleo.setText(textoStatus);
         tvStatusOleo.setTextColor(getColor(veiculo.atingiuLimiteTrocaOleo()
                 ? R.color.danger : R.color.text_secondary));
         tvStatusOleo.setTextSize(13f);
+        tvStatusOleo.setGravity(Gravity.END);
 
         TextView tvEditar = new TextView(this);
         tvEditar.setText(R.string.texto_editar_veiculo);

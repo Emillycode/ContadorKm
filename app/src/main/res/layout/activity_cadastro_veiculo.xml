@@ -105,6 +105,19 @@
             android:textColor="@color/white"
             android:textStyle="bold"
             android:backgroundTint="@color/primary"/>
+        
+        <Button
+            android:id="@+id/btnMarcarOleoTrocado"
+            android:layout_width="match_parent"
+            android:layout_height="50dp"
+            android:layout_marginTop="12dp"
+            android:text="Marcar como óleo trocado"
+            android:textColor="@color/white"
+            android:textStyle="bold"
+            android:backgroundTint="@color/accent"
+            android:visibility="gone"/>
+
+
 
         <Button
             android:id="@+id/btnExcluirVeiculo"

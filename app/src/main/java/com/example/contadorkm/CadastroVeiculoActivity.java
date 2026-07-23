@@ -38,6 +38,7 @@ public class CadastroVeiculoActivity extends AppCompatActivity {
     private TextView tvLabelTipoOleo;
     private TextView tvTituloCadastro;
     private Button btnSalvarVeiculo;
+    private Button btnMarcarOleoTrocado;
     private Button btnExcluirVeiculo;
 
     private final ExecutorService executorBanco = Executors.newSingleThreadExecutor();
@@ -56,12 +57,14 @@ public class CadastroVeiculoActivity extends AppCompatActivity {
         tvLabelTipoOleo = findViewById(R.id.tvLabelTipoOleo);
         tvTituloCadastro = findViewById(R.id.tvTituloCadastro);
         btnSalvarVeiculo = findViewById(R.id.btnSalvarVeiculo);
+        btnMarcarOleoTrocado = findViewById(R.id.btnMarcarOleoTrocado);
         btnExcluirVeiculo = findViewById(R.id.btnExcluirVeiculo);
 
         rgTipoVeiculo.setOnCheckedChangeListener((group, checkedId) -> atualizarVisibilidadeTipoOleo());
         atualizarVisibilidadeTipoOleo();
 
         btnSalvarVeiculo.setOnClickListener(v -> salvarVeiculo());
+        btnMarcarOleoTrocado.setOnClickListener(v -> confirmarTrocaDeOleo());
         btnExcluirVeiculo.setOnClickListener(v -> confirmarExclusao());
 
         veiculoEmEdicaoId = getIntent().getLongExtra(EXTRA_VEICULO_ID, SEM_ID);
@@ -77,6 +80,7 @@ public class CadastroVeiculoActivity extends AppCompatActivity {
     private void entrarEmModoEdicao() {
         tvTituloCadastro.setText(R.string.titulo_editar_veiculo);
         btnSalvarVeiculo.setText(R.string.botao_salvar_alteracoes_veiculo);
+        btnMarcarOleoTrocado.setVisibility(View.VISIBLE);
         btnExcluirVeiculo.setVisibility(View.VISIBLE);
 
         executorBanco.execute(() -> {
@@ -152,7 +156,7 @@ public class CadastroVeiculoActivity extends AppCompatActivity {
     }
 
     private void criarNovoVeiculo(String nome, String tipoVeiculo, String tipoOleo) {
-        Veiculo veiculo = new Veiculo(nome, tipoVeiculo, tipoOleo, 0.0);
+        Veiculo veiculo = new Veiculo(nome, tipoVeiculo, tipoOleo, 0.0, 0L);
         executorBanco.execute(() -> {
             AppDatabase.getInstancia(getApplicationContext()).veiculoDao().inserir(veiculo);
             runOnUiThread(this::finalizarComSucesso);
@@ -169,6 +173,30 @@ public class CadastroVeiculoActivity extends AppCompatActivity {
 
         executorBanco.execute(() -> {
             AppDatabase.getInstancia(getApplicationContext()).veiculoDao().atualizar(veiculoEmEdicao);
+            runOnUiThread(this::finalizarComSucesso);
+        });
+    }
+
+    private void confirmarTrocaDeOleo() {
+        if (veiculoEmEdicao == null) return;
+
+        String mensagem = getString(R.string.confirmar_troca_oleo_mensagem, veiculoEmEdicao.kmDesdeTrocaOleo);
+
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.confirmar_troca_oleo_titulo)
+                .setMessage(mensagem)
+                .setPositiveButton(R.string.botao_confirmar_troca_oleo, (dialog, which) -> marcarOleoComoTrocado())
+                .setNegativeButton(R.string.botao_cancelar, null)
+                .show();
+    }
+
+    private void marcarOleoComoTrocado() {
+        veiculoEmEdicao.kmDesdeTrocaOleo = 0.0;
+        veiculoEmEdicao.ultimaTrocaOleoMillis = System.currentTimeMillis();
+
+        executorBanco.execute(() -> {
+            AppDatabase.getInstancia(getApplicationContext()).veiculoDao().atualizar(veiculoEmEdicao);
+            NotificationHelper.cancelarNotificacaoTrocaOleo(getApplicationContext(), veiculoEmEdicao.id);
             runOnUiThread(this::finalizarComSucesso);
         });
     }
